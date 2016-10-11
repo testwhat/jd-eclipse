@@ -15,6 +15,8 @@ import jd.ide.eclipse.JavaDecompilerPlugin;
 
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Status;
+import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.internal.core.PackageFragment;
 import org.eclipse.jdt.internal.core.SourceMapper;
 import org.eclipse.jface.preference.IPreferenceStore;
 
@@ -27,14 +29,13 @@ import org.eclipse.jface.preference.IPreferenceStore;
  * @see     org.eclipse.jdt.internal.core.SourceMapper
  */
 @SuppressWarnings("restriction")
-public class JDSourceMapper extends SourceMapper
-{
+public class JDSourceMapper extends SourceMapper {
 	private final static String JAVA_CLASS_SUFFIX         = ".class";
 	private final static String JAVA_SOURCE_SUFFIX        = ".java";
 	private final static int    JAVA_SOURCE_SUFFIX_LENGTH = 5;
 
 	private File basePath;
-	
+
 	@SuppressWarnings("rawtypes")
 	public JDSourceMapper(
 		File basePath, IPath sourcePath, String sourceRootPath, Map options) 
@@ -42,51 +43,62 @@ public class JDSourceMapper extends SourceMapper
 		super(sourcePath, sourceRootPath, options);
 		this.basePath = basePath;
 	}
-	
-	@SuppressWarnings("rawtypes")
-	public char[] findSource(String javaSourcePath) 
-	{
+
+	// https://github.com/java-decompiler/jd-eclipse/issues/4#issuecomment-239710142
+	public char[] findSource(IType type, String simpleSourceFileName) {
+		char[] source = super.findSource(type, simpleSourceFileName);
+		if (source == null) {
+			PackageFragment pkgFrag = (PackageFragment) type.getPackageFragment();
+			String fullName = org.eclipse.jdt.internal.core.util.Util.concatWith(pkgFrag.names, simpleSourceFileName, '/');
+			String classPath = fullName.substring(0, fullName.length()-JAVA_SOURCE_SUFFIX_LENGTH) + JAVA_CLASS_SUFFIX;
+			try {
+				String result = decompile(this.basePath.getAbsolutePath(), classPath);
+				if (result != null)
+					source = result.toCharArray();
+			} catch (Exception e) {
+				JavaDecompilerPlugin.getDefault().getLog().log(new Status(
+					Status.ERROR, JavaDecompilerPlugin.PLUGIN_ID,
+					0, e.getMessage(), e));
+			}
+		}
+		return source;
+	}
+
+	/*@SuppressWarnings("rawtypes")
+	public char[] findSource(String javaSourcePath) {
 		char[] source = null;
 		
 		// Search source file
-		if (this.rootPaths == null)
-		{
+		if (this.rootPaths == null)	{
 			source = super.findSource(javaSourcePath);
-		}
-		else
-		{
+		} else {
 			Iterator iterator = this.rootPaths.iterator();
-			while (iterator.hasNext() && (source == null))
-			{
+			while (iterator.hasNext() && (source == null)) {
 				String sourcesRootPath = (String)iterator.next();				
 				source = super.findSource(
 					sourcesRootPath + IPath.SEPARATOR + javaSourcePath);
 			}
 		}
-		
-		if ((source == null) && javaSourcePath.endsWith(JAVA_SOURCE_SUFFIX))
-		{	
+
+		if ((source == null) && javaSourcePath.endsWith(JAVA_SOURCE_SUFFIX)) {
 			String classPath = javaSourcePath.substring(
 				0, javaSourcePath.length()-JAVA_SOURCE_SUFFIX_LENGTH) + JAVA_CLASS_SUFFIX;
 			
 			// Decompile class file
-			try
-			{
+			try {
 				String result = decompile(this.basePath.getAbsolutePath(), classPath);
 				if (result != null)
 					source = result.toCharArray();
-			}
-			catch (Exception e)
-			{
+			} catch (Exception e) {
 				JavaDecompilerPlugin.getDefault().getLog().log(new Status(
-					Status.ERROR, JavaDecompilerPlugin.PLUGIN_ID, 
+					Status.ERROR, JavaDecompilerPlugin.PLUGIN_ID,
 					0, e.getMessage(), e));
 			}
 		}
 
 		return source;
-	}
-		
+	}*/
+
     /**
      * @param basePath          Path to the root of the classpath, either a 
      *                          path to a directory or a path to a jar file.
@@ -96,7 +108,7 @@ public class JDSourceMapper extends SourceMapper
 	protected String decompile(String basePath, String classPath) {
 		// Load preferences
 		IPreferenceStore store = JavaDecompilerPlugin.getDefault().getPreferenceStore();
-		
+
 		boolean showDefaultConstructor = store.getBoolean(JavaDecompilerPlugin.PREF_SHOW_DEFAULT_CONSTRUCTOR);
 		boolean realignmentLineNumber = store.getBoolean(JavaDecompilerPlugin.PREF_REALIGN_LINE_NUMBERS);
 		boolean showPrefixThis = store.getBoolean(JavaDecompilerPlugin.PREF_OMIT_PREFIX_THIS);
@@ -104,16 +116,16 @@ public class JDSourceMapper extends SourceMapper
 		boolean unicodeEscape = store.getBoolean(JavaDecompilerPlugin.PREF_ESCAPE_UNICODE_CHARACTERS);
 		boolean showLineNumbers = store.getBoolean(JavaDecompilerPlugin.PREF_SHOW_LINE_NUMBERS);
 		boolean showMetadata = store.getBoolean(JavaDecompilerPlugin.PREF_SHOW_METADATA);
-		
+
 		// Create preferences
 		IdePreferences preferences = new IdePreferences(
 			showDefaultConstructor, realignmentLineNumber, showPrefixThis, 
 			mergeEmptyLines, unicodeEscape, showLineNumbers, showMetadata);
-		
+
 		// Decompile
 		return IdeDecompiler.decompile(preferences, basePath, classPath);
 	}
-	
+
     /**
      * @return version of JD-Core
      * @since JD-Core 0.7.0
